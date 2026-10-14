@@ -11,7 +11,7 @@
   "static_url": "https://gtfs.sofiatraffic.bg/api/v1/static",
   "realtime": [
     { "feed": "vehicle-positions", "url": "https://gtfs.sofiatraffic.bg/api/v1/vehicle-positions", "every_minutes": 1, "offsets_s": [0, 15, 30, 45] },
-    { "feed": "trip-updates", "url": "https://gtfs.sofiatraffic.bg/api/v1/trip-updates", "every_minutes": 2, "offsets_s": [5] },
+    { "feed": "trip-updates", "url": "https://gtfs.sofiatraffic.bg/api/v1/trip-updates", "every_minutes": 1, "offsets_s": [5] },
     { "feed": "alerts", "url": "https://gtfs.sofiatraffic.bg/api/v1/alerts", "every_minutes": 5, "offsets_s": [10] }
   ]
 }

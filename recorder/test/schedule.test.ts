@@ -38,3 +38,18 @@ test("keys are UTC date and hour partitioned", () => {
   assert.equal(rawKey("sofia", "alerts", t), `raw/sofia/alerts/2026-10-14/23/${t}.pb`);
   assert.equal(errorKey("sofia", "alerts", t), `errors/sofia/2026-10-14/${t}-alerts.json`);
 });
+
+test("cadence stays even across UTC midnight", () => {
+  const seven: City = { id: "c", realtime: [{ feed: "f", url: "u", every_minutes: 7, offsets_s: [0] }] };
+  const fired: number[] = [];
+  for (let t = at("2026-10-14T23:30:00Z"); t <= at("2026-10-15T00:30:00Z"); t += 60_000) {
+    if (jobsFor(t, [seven]).length) fired.push(t);
+  }
+  const gaps = new Set(fired.slice(1).map((t, i) => (t - fired[i]) / 60_000));
+  assert.deepEqual([...gaps], [7]);
+});
+
+test("rejects a zero cadence instead of never firing", () => {
+  const zero: City = { id: "c", realtime: [{ feed: "f", url: "u", every_minutes: 0, offsets_s: [0] }] };
+  assert.throws(() => jobsFor(at("2026-10-14T19:00:00Z"), [zero]));
+});
