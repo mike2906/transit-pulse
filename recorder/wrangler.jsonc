@@ -1,6 +1,7 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "transit-pulse-recorder",
+  "account_id": "2ecf50dd0473ff451ea98336863d40fc",
   "main": "src/index.ts",
   "compatibility_date": "2026-10-01",
   // No public URL: the recorder only runs on its schedule.

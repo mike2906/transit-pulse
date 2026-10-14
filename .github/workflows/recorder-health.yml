@@ -1,0 +1,43 @@
+name: recorder-health
+
+on:
+  schedule:
+    - cron: "17 */3 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: 2ecf50dd0473ff451ea98336863d40fc
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check recent snapshots
+        id: check
+        run: |
+          set +e
+          pipeline/check_recorder.sh > summary.md
+          echo "status=$?" >> "$GITHUB_OUTPUT"
+          tee -a "$GITHUB_STEP_SUMMARY" < summary.md
+      # One open "recorder-down" issue while the check fails; closed when it passes again.
+      - name: Open or update the recorder-down issue
+        if: steps.check.outputs.status != '0'
+        run: |
+          gh label create recorder-down --color B60205 --force >/dev/null
+          n=$(gh issue list --label recorder-down --state open --json number --jq '.[0].number')
+          if [ -n "$n" ]; then gh issue comment "$n" --body-file summary.md
+          else gh issue create --title "Recorder is down" --label recorder-down --body-file summary.md; fi
+          exit 1
+      - name: Close the recorder-down issue
+        if: steps.check.outputs.status == '0'
+        run: |
+          for n in $(gh issue list --label recorder-down --state open --json number --jq '.[].number'); do
+            gh issue close "$n" --comment "Recovered: $(tail -1 summary.md)"
+          done
