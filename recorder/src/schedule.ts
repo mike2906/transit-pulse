@@ -15,11 +15,13 @@ export interface City {
 export interface Job {
   city: string;
   feed: RealtimeFeed;
-  at: number; // epoch ms the fetch should start
+  at: number; // epoch ms the fetch should start; also names its error record
 }
 
-// Which fetches belong to the cron firing at `scheduledTime`.
-export function jobsFor(scheduledTime: number, cities: City[]): Job[] {
+// Which fetches belong to the cron firing at `scheduledTime`. Which feeds run is decided by the
+// scheduled minute; their offsets count from `startTime`, when the invocation actually began,
+// because cron invocations routinely start 15-20 s after the scheduled minute.
+export function jobsFor(scheduledTime: number, startTime: number, cities: City[]): Job[] {
   const minuteStart = scheduledTime - (scheduledTime % 60_000);
   // Minutes since the epoch, so cadences that don't divide a day stay even across midnight.
   const minute = minuteStart / 60_000;
@@ -29,7 +31,7 @@ export function jobsFor(scheduledTime: number, cities: City[]): Job[] {
       if (!(feed.every_minutes >= 1)) throw new Error(`${city.id}/${feed.feed}: every_minutes must be >= 1`);
       if (minute % feed.every_minutes !== 0) continue;
       for (const offset of feed.offsets_s) {
-        jobs.push({ city: city.id, feed, at: minuteStart + offset * 1000 });
+        jobs.push({ city: city.id, feed, at: startTime + offset * 1000 });
       }
     }
   }
