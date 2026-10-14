@@ -31,7 +31,7 @@ jobs:
         if: steps.check.outputs.status != '0'
         run: |
           gh label create recorder-down --color B60205 --force >/dev/null
-          n=$(gh issue list --label recorder-down --state open --json number --jq '.[0].number')
+          n=$(gh issue list --label recorder-down --state open --json number --jq '.[0].number // empty')
           if [ -n "$n" ]; then gh issue comment "$n" --body-file summary.md
           else gh issue create --title "Recorder is down" --label recorder-down --body-file summary.md; fi
           exit 1

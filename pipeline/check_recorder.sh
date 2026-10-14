@@ -42,7 +42,8 @@ for feed in vehicle-positions trip-updates alerts; do
     fi
   done
 done
-errors=$(list "errors/${CITY}/$(date -u +%Y-%m-%d)/" | grep -c . || true)
+error_rows=$(list "errors/${CITY}/$(date -u +%Y-%m-%d)/")
+errors=$(grep -c . <<<"$error_rows" || true)
 echo
 echo "Error records today (UTC): ${errors}"
 echo
