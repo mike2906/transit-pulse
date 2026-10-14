@@ -13,21 +13,22 @@ const city: City = {
 
 const at = (iso: string) => Date.parse(iso);
 
-test("every minute fetches positions four times, 15 s apart", () => {
-  const jobs = jobsFor(at("2026-10-14T19:01:00.250Z"), [city]);
+test("offsets count from when the invocation started, not the scheduled minute", () => {
+  // Cron invocations often start ~20 s late; every slot must still run, 15 s apart.
+  const jobs = jobsFor(at("2026-10-14T19:01:00Z"), at("2026-10-14T19:01:20Z"), [city]);
   assert.deepEqual(
     jobs.map((j) => [j.feed.feed, new Date(j.at).toISOString()]),
     [
-      ["vehicle-positions", "2026-10-14T19:01:00.000Z"],
-      ["vehicle-positions", "2026-10-14T19:01:15.000Z"],
-      ["vehicle-positions", "2026-10-14T19:01:30.000Z"],
-      ["vehicle-positions", "2026-10-14T19:01:45.000Z"],
+      ["vehicle-positions", "2026-10-14T19:01:20.000Z"],
+      ["vehicle-positions", "2026-10-14T19:01:35.000Z"],
+      ["vehicle-positions", "2026-10-14T19:01:50.000Z"],
+      ["vehicle-positions", "2026-10-14T19:02:05.000Z"],
     ],
   );
 });
 
 test("trip updates on even minutes, alerts every five", () => {
-  const feeds = (iso: string) => [...new Set(jobsFor(at(iso), [city]).map((j) => j.feed.feed))];
+  const feeds = (iso: string) => [...new Set(jobsFor(at(iso), at(iso) + 20_000, [city]).map((j) => j.feed.feed))];
   assert.deepEqual(feeds("2026-10-14T19:02:00Z"), ["vehicle-positions", "trip-updates"]);
   assert.deepEqual(feeds("2026-10-14T19:05:00Z"), ["vehicle-positions", "alerts"]);
   assert.deepEqual(feeds("2026-10-14T19:10:00Z"), ["vehicle-positions", "trip-updates", "alerts"]);
@@ -43,7 +44,7 @@ test("cadence stays even across UTC midnight", () => {
   const seven: City = { id: "c", realtime: [{ feed: "f", url: "u", every_minutes: 7, offsets_s: [0] }] };
   const fired: number[] = [];
   for (let t = at("2026-10-14T23:30:00Z"); t <= at("2026-10-15T00:30:00Z"); t += 60_000) {
-    if (jobsFor(t, [seven]).length) fired.push(t);
+    if (jobsFor(t, t, [seven]).length) fired.push(t);
   }
   const gaps = new Set(fired.slice(1).map((t, i) => (t - fired[i]) / 60_000));
   assert.deepEqual([...gaps], [7]);
@@ -51,5 +52,5 @@ test("cadence stays even across UTC midnight", () => {
 
 test("rejects a zero cadence instead of never firing", () => {
   const zero: City = { id: "c", realtime: [{ feed: "f", url: "u", every_minutes: 0, offsets_s: [0] }] };
-  assert.throws(() => jobsFor(at("2026-10-14T19:00:00Z"), [zero]));
+  assert.throws(() => jobsFor(at("2026-10-14T19:00:00Z"), at("2026-10-14T19:00:00Z"), [zero]));
 });

@@ -11,16 +11,9 @@ export interface Env {
 const CITIES: City[] = [sofia];
 const USER_AGENT = "transit-pulse (+https://github.com/mike2906/transit-pulse)";
 const FETCH_TIMEOUT_MS = 10_000;
-// A job that can't start within this of its slot is skipped: the next slot covers it, and
-// running several late jobs at once would only send a burst of requests to the feed.
-const MAX_LATENESS_MS = 10_000;
 
 async function record(env: Env, job: Job): Promise<void> {
   const wait = job.at - Date.now();
-  if (wait < -MAX_LATENESS_MS) {
-    console.warn(`skipped late job ${job.city}/${job.feed.feed} (${-wait} ms late)`);
-    return;
-  }
   if (wait > 0) await new Promise((resolve) => setTimeout(resolve, wait));
 
   const started = Date.now();
@@ -73,7 +66,7 @@ export default {
   // Awaited rather than passed to waitUntil: a cron invocation may run for up to 15 minutes of
   // wall time, and the sleeps between fetches cost no CPU.
   async scheduled(controller: ScheduledController, env: Env): Promise<void> {
-    const jobs = jobsFor(controller.scheduledTime, CITIES);
+    const jobs = jobsFor(controller.scheduledTime, Date.now(), CITIES);
     const results = await Promise.allSettled(jobs.map((job) => record(env, job)));
     // Only reached when even the error record could not be written (e.g. R2 down); log it so
     // the gap shows in Workers logs.

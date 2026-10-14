@@ -16,7 +16,7 @@ list() {
     page=$(curl -fsS -G "$API" -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
       --data-urlencode "prefix=${prefix}" --data-urlencode "per_page=1000" \
       ${cursor:+--data-urlencode "cursor=${cursor}"})
-    jq -r '.result[] | "\(.key)\t\(.size)"' <<<"$page"
+    jq -r '(.result | if type == "array" then . else (.objects // []) end)[] | "\(.key)\t\(.size)"' <<<"$page"
     cursor=$(jq -r '.result_info.cursor // empty' <<<"$page")
     [ "$(jq -r '.result_info.is_truncated // false' <<<"$page")" = true ] && [ -n "$cursor" ] || break
   done
@@ -48,6 +48,13 @@ echo
 echo "Error records today (UTC): ${errors}"
 echo
 
+if [ "$newest" -eq 0 ]; then
+  # Nothing found: show what the bucket does hold, to tell a stopped recorder from a wrong prefix.
+  echo "Bucket sample (first keys under raw/ and errors/):"
+  echo '```'
+  { list "raw/" | head -5; list "errors/" | head -5; } || true
+  echo '```'
+fi
 age=$((now - newest))
 if [ "$newest" -eq 0 ] || [ "$age" -gt "$MAX_AGE_S" ]; then
   echo "**Recorder looks down:** newest vehicle-positions snapshot is ${age} s old (limit ${MAX_AGE_S} s)."
