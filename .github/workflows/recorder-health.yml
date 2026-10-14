@@ -19,6 +19,11 @@ jobs:
       GH_REPO: ${{ github.repository }}
     steps:
       - uses: actions/checkout@v4
+      - name: DEBUG tail the recorder for 75 s
+        run: |
+          timeout 75 npx --yes wrangler@4 tail transit-pulse-recorder --format json > tail.json 2> tail.err || true
+          echo "--- stderr"; tail -c 2000 tail.err
+          echo "--- events"; jq -c '{outcome, scheduledTime: .event.scheduledTime, cron: .event.cron, logs: [.logs[]?.message], exceptions: [.exceptions[]?.message]}' tail.json 2>/dev/null | head -20 || head -c 4000 tail.json
       - name: Check recent snapshots
         id: check
         run: |
