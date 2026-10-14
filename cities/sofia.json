@@ -1,0 +1,17 @@
+{
+  "id": "sofia",
+  "name": "Sofia",
+  "timezone": "Europe/Sofia",
+  "day_cutoff_utc_hour": 0,
+  "credit": "Център за градска мобилност ЕАД / Столична община",
+  "licence": "CC-BY-4.0",
+  "licence_url": "https://creativecommons.org/licenses/by/4.0/",
+  "terms_url": "https://www.sofia.bg/web/guest/transport-data",
+  "rules": "Keep official stop names/codes, line numbers/names, routes, timetables and line colours unchanged.",
+  "static_url": "https://gtfs.sofiatraffic.bg/api/v1/static",
+  "realtime": [
+    { "feed": "vehicle-positions", "url": "https://gtfs.sofiatraffic.bg/api/v1/vehicle-positions", "every_minutes": 1, "offsets_s": [0, 15, 30, 45] },
+    { "feed": "trip-updates", "url": "https://gtfs.sofiatraffic.bg/api/v1/trip-updates", "every_minutes": 1, "offsets_s": [5] },
+    { "feed": "alerts", "url": "https://gtfs.sofiatraffic.bg/api/v1/alerts", "every_minutes": 5, "offsets_s": [10] }
+  ]
+}

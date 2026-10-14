@@ -1,0 +1,12 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "transit-pulse-recorder",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-10-01",
+  // No public URL: the recorder only runs on its schedule.
+  "workers_dev": false,
+  "preview_urls": false,
+  "triggers": { "crons": ["* * * * *"] },
+  "r2_buckets": [{ "binding": "RAW", "bucket_name": "transit-pulse-raw" }],
+  "observability": { "enabled": true }
+}
