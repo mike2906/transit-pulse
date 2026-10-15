@@ -1,0 +1,25 @@
+name: measure-compression (temporary)
+on:
+  push:
+    branches: [measure-compression]
+jobs:
+  measure:
+    runs-on: ubuntu-latest
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      ACC: 2ecf50dd0473ff451ea98336863d40fc
+    steps:
+      - name: Download one daytime hour and compare compression
+        run: |
+          set -euo pipefail
+          sudo apt-get -qq install -y zstd >/dev/null
+          API="https://api.cloudflare.com/client/v4/accounts/$ACC/r2/buckets/transit-pulse-raw/objects"
+          for feed in vehicle-positions trip-updates alerts; do
+            mkdir -p "d/$feed"
+            keys=$(curl -fsS -G "$API" -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" --data-urlencode "prefix=raw/sofia/$feed/2026-10-15/14/" --data-urlencode per_page=1000 | jq -r '(.result | if type=="array" then . else .objects end)[].key')
+            for k in $keys; do curl -fsS "$API/$k" -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" -o "d/$feed/$(basename "$k")"; done
+            raw=$(du -sb "d/$feed" | cut -f1); n=$(ls "d/$feed" | wc -l)
+            gz=0; for f in d/$feed/*; do gz=$((gz + $(gzip -6 -c "$f" | wc -c))); done
+            tarzst=$(tar -C d -cf - "$feed" | zstd -19 --long=27 -T0 -c | wc -c)
+            echo "$feed: $n files, raw $((raw/1024)) KB, gzip each $((gz/1024)) KB ($((raw/gz))x), tar+zstd-19 $((tarzst/1024)) KB ($((raw/tarzst))x)" | tee -a "$GITHUB_STEP_SUMMARY"
+          done
