@@ -51,7 +51,8 @@ def test_tables_from_packed_day(store, tmp_path, after_day):
 
     [alert] = table(store, tmp_path, "alerts")
     assert json.loads(alert["alert_json"])["header_text"]["translation"][0]["text"] == "Ремонт"
-    assert len(table(store, tmp_path, "fetch_errors")) == 1
+    [err] = table(store, tmp_path, "fetch_errors")
+    assert err["http_status"] == 503
 
 
 def test_rederives_only_when_raw_manifests_change(store, tmp_path, after_day):

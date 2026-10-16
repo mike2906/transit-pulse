@@ -44,7 +44,7 @@ if objects arrived after the first was written; each covers only what the earlie
 - Each bundle is uploaded, downloaded again, decompressed and checked member by member against
   the inventory before the manifest is written. The manifest is written last and read back.
 - Deletion trusts only manifests: it deletes exactly the keys they list whose size still
-  matches, and only with `--delete` (repo variable `PACK_DELETE=true`). A crash mid-delete is
+  and ETag still match, and only with `--delete` (repo variable `PACK_DELETE=true`). A crash mid-delete is
   finished by the next run; it never repacks the leftovers as a smaller "complete" day.
 - A failed day deletes nothing and does not stop later days.
 - Logs and job summaries carry counts only, never object contents. No workflow uploads
@@ -65,7 +65,8 @@ copy still in the bucket.
 ## Parquet tables (schema v1)
 
 All capture times are UTC timestamps; times the feed publishes stay as epoch seconds; fields the
-feed left out are null, never 0. Nothing is forward-filled.
+feed left out are null, never 0. Nothing is forward-filled. Enum values newer than the
+bindings also come out null (they survive in the raw bundles).
 
 - `snapshots`: every capture, with HTTP status, scheduled slot, fetch time, feed header and
   whether it parsed.
@@ -87,7 +88,8 @@ healthchecks.io checks (free plan: 20 checks), slugs created automatically on fi
 | `sofia-vehicle-positions` | Worker, each minute a snapshot was stored | 1 min | 5 min |
 | `sofia-trip-updates` | Worker | 1 min | 5 min |
 | `sofia-alerts` | Worker | 5 min | 10 min |
-| `sofia-auditor` | `recorder-health` workflow | 3 h | 3 h |
+| `sofia-auditor` | `recorder-health` workflow, 3-hourly check | 3 h | 3 h |
+| `sofia-coverage` | `recorder-health` workflow, daily report | 1 day | 6 h |
 | `sofia-pack` | `pack` workflow | 6 h | 6 h |
 | `sofia-derive` | `derive` workflow | 1 day | 6 h |
 
@@ -124,5 +126,8 @@ Nothing here runs against R2 until these are done. Order matters for the last tw
    period and grace as in the table above.
 5. **Merge** this repo's PR only after step 2's read-only secrets exist, since the merge
    switches `recorder-health` to them and deploys the Worker with heartbeats.
-6. **Turn on deletion** after the first packed day passes
+6. **Turn on deletion** only after one manual delete has worked: R2's handling of the checksum
+   boto3 sends with DeleteObjects is unverified (a rejection fails safely, deleting nothing). Run
+   `pack` once by hand with `PACK_DELETE=true` set for that run, then keep it on if it deleted.
+   Do this after the first packed day passes
    the restore test (Actions, `pack`, Run workflow, with `verify_date` set to that day): set the private repo variable `PACK_DELETE=true`.

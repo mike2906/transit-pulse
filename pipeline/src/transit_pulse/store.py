@@ -19,6 +19,7 @@ from typing import Iterable, Iterator, Protocol
 class ObjectInfo:
     key: str
     size: int
+    etag: str = ""  # from the listing; MD5 for single-part uploads, which is all the Worker does
 
 
 @dataclass
@@ -93,7 +94,7 @@ class S3Store:
         pages = self.client.get_paginator("list_objects_v2").paginate(Bucket=self.bucket, Prefix=prefix)
         for page in pages:
             for o in page.get("Contents", []):
-                yield ObjectInfo(o["Key"], o["Size"])
+                yield ObjectInfo(o["Key"], o["Size"], o.get("ETag", "").strip('"'))
 
     def list_dirs(self, prefix: str) -> list[str]:
         pages = self.client.get_paginator("list_objects_v2").paginate(

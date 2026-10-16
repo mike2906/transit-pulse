@@ -167,6 +167,14 @@ def verify_day(store: Store, city: City, date: str, workdir: Path) -> tuple[str,
     )
 
 
+def _same(entry: dict, listed: ObjectInfo) -> bool:
+    """The landing object is still the one the manifest preserved: same size and, where both
+    sides have one, same ETag."""
+    if entry["size"] != listed.size:
+        return False
+    return not (entry.get("etag") and listed.etag) or entry["etag"] == listed.etag
+
+
 @dataclass
 class DayResult:
     date: str
@@ -175,7 +183,7 @@ class DayResult:
     covered: int = 0  # objects covered by all of the day's manifests
     remaining: int = 0  # landing objects still present after this run
     deleted: int = 0
-    skipped_deletes: int = 0  # covered keys whose current size no longer matches: never deleted
+    skipped_deletes: int = 0  # covered keys whose size or ETag no longer matches: never deleted
     coverage_md: str = ""
     uncovered: int = 0  # landing objects no manifest covered when the run started
 
@@ -201,7 +209,7 @@ def _preserve(
                 raise ValueError(f"{o.key}: listed {o.size} bytes, downloaded {size}")
             return {
                 "key": o.key, "size": size, "sha256": sha256_file(files[o.key]),
-                "content_type": meta.content_type, "etag": meta.etag,
+                "content_type": meta.content_type, "etag": meta.etag or o.etag,
                 "last_modified": meta.last_modified, "metadata": meta.metadata,
             }
 
@@ -225,7 +233,10 @@ def _preserve(
             "tar_bytes": tar_bytes, "objects": len(entries),
             "object_bytes": sum(e["size"] for e in entries),
         })
-        all_entries += [{"key": e["key"], "size": e["size"], "sha256": e["sha256"], "bundle": sha} for e in entries]
+        all_entries += [
+            {"key": e["key"], "size": e["size"], "etag": e["etag"], "sha256": e["sha256"], "bundle": sha}
+            for e in entries
+        ]
         shutil.rmtree(pdir)
         readback.unlink()
         local.unlink()
@@ -278,7 +289,7 @@ def pack_day(
 
     res.covered = len(covered)
     if delete:
-        doomed = [k for k, o in present.items() if k in covered and covered[k]["size"] == o.size]
+        doomed = [k for k, o in present.items() if k in covered and _same(covered[k], o)]
         res.skipped_deletes = sum(1 for k in present if k in covered) - len(doomed)
         res.deleted = store.delete(doomed)
     res.remaining = len(present) - res.deleted

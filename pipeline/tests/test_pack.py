@@ -174,3 +174,19 @@ def test_day_budget_skips_days_already_preserved(store, tmp_path, after_day):
     assert len(manifests(store)) == 1 and manifests(store, "2026-10-16") == []
     one_day()  # DAY is still in landing (delete off) but must not use up the budget
     assert len(manifests(store, "2026-10-16")) == 1
+
+
+def test_delete_skips_an_object_whose_etag_changed(store, tmp_path, after_day, monkeypatch):
+    from transit_pulse.store import ObjectInfo
+
+    keys = fill_hours(store, DAY, range(1))
+    run(store, tmp_path, after_day)
+    real_list = LocalStore.list
+
+    def listing_says_rewritten(self, prefix):
+        for o in real_list(self, prefix):
+            yield ObjectInfo(o.key, o.size, "rewritten" if o.key == keys[0] else "")
+
+    monkeypatch.setattr(LocalStore, "list", listing_says_rewritten)
+    run(store, tmp_path, after_day, delete=True)
+    assert landing(store) == [keys[0]]

@@ -41,7 +41,10 @@ jobs:
           set +e
           cmd=check; [ "$DAILY" = true ] && cmd=coverage
           uv run --no-sync transit-pulse --city sofia "$cmd" > ../summary.md
-          echo "status=$?" >> "$GITHUB_OUTPUT"
+          status=$?
+          # A crash prints only to stderr; say so in the summary rather than post an empty issue.
+          [ -s ../summary.md ] || echo "**The check itself crashed** (exit $status); see the workflow log." > ../summary.md
+          echo "status=$status" >> "$GITHUB_OUTPUT"
       # One open "recorder-down" issue while the check fails; closed when it passes again.
       # The daily report fails only the run (GitHub emails it), it does not touch the issue.
       - name: Open or update the recorder-down issue
@@ -60,9 +63,11 @@ jobs:
       - name: Heartbeat
         if: always() && env.HC_PING_KEY != ''
         run: |
+          slug=sofia-auditor; [ "$DAILY" = true ] && slug=sofia-coverage
           suffix=""; [ "${{ steps.check.outputs.status }}" = 0 ] || suffix=/fail
+          touch summary.md
           curl -fsS -m 10 --retry 3 -o /dev/null --data-binary @summary.md \
-            "https://hc-ping.com/${HC_PING_KEY}/sofia-auditor${suffix}?create=1" || true
+            "https://hc-ping.com/${HC_PING_KEY}/${slug}${suffix}?create=1" || true
       - name: Fail the run if the check failed
         if: steps.check.outputs.status != '0'
         run: exit 1

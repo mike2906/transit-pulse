@@ -114,7 +114,10 @@ class TableWriter:
 
 
 def opt(msg, name: str):
-    """The field's value if the feed set it, else None (proto2 keeps presence)."""
+    """The field's value if the feed set it, else None (proto2 keeps presence).
+
+    An enum number newer than our bindings is parsed into unknown fields, so it also reads as
+    None here; the raw bundles still hold it."""
     if not msg.HasField(name):
         return None
     value = getattr(msg, name)
@@ -147,17 +150,21 @@ class DayDecoder:
         self.w = {name: TableWriter(outdir / f"{name}.parquet", f) for name, f in SCHEMAS.items()}
         self.seen_versions: set[str] = set()
         self.parse_failures = 0
+        self.unknown_keys = 0
 
     def error_record(self, key: str, data: bytes) -> None:
         r = json.loads(data)
         self.w["fetch_errors"].add({
             "error_key": key, "feed": r.get("feed"), "slot_at": ms_ts(r.get("slot")),
             "started_at": ms_ts(r.get("started")), "ended_at": ms_ts(r.get("ended")),
-            "http_status": r.get("status"), "error": r.get("error"), "body_prefix": r.get("body") or None,
+            "http_status": r.get("status") or None, "error": r.get("error"), "body_prefix": r.get("body") or None,
         })
 
     def snapshot(self, key: str, entry: dict, data: bytes) -> None:
         m = K.RAW_RE.match(key)
+        if m is None:  # not a key the recorder writes; keep the day derivable
+            self.unknown_keys += 1
+            return
         feed, fetched = m["feed"], ms_ts(m["ms"])
         meta = entry.get("metadata", {})
         snap = {
@@ -284,6 +291,7 @@ def derive_day(store: Store, city: City, date: str, workdir: Path, *, now_ms: in
         "schema": MANIFEST_SCHEMA, "schema_version": SCHEMA_VERSION, "city": city.id, "date": date,
         "created_at": datetime.fromtimestamp(now_ms / 1000, UTC).isoformat(), "code_version": code_version,
         "source_manifests": [k for k, _ in manifests], "tables": tables, "parse_failures": dec.parse_failures,
+        "skipped_unknown_keys": dec.unknown_keys,
     }
     store.write(K.derived_manifest_key(city.id, SCHEMA_VERSION, date),
                 json.dumps(manifest, indent=1, sort_keys=True).encode(), "application/json")
