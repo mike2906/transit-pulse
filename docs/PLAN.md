@@ -3,6 +3,10 @@
 Draft 3, 2026-10-14 ~20:05 UTC. Status: Codex-reviewed (gpt-6.1-sol, 20:00 UTC); recorder in PR #1; packing job next. Repo: mike2906/transit-pulse
 (public, created by Mike 2026-10-14 19:33 UTC; site and visualisations live there too). May move to its own Claude project.
 
+**2026-10-16:** packing, Parquet and monitoring are built as in the second Codex review
+(preserve raw first, Parquet as a separate stage, per-feed heartbeats). Current design and setup:
+[ARCHIVE.md](ARCHIVE.md); it overrides the packing, Parquet and liveness sections below.
+
 ## Codex review outcome (2026-10-14 ~20:00 UTC) — these OVERRIDE the sections below
 
 Feed facts measured from Mike's PC 19:50 UTC: positions ~32 KB and content changes about every

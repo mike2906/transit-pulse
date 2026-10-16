@@ -1,0 +1,23 @@
+name: pipeline
+
+# Tests only, on synthetic data. No secrets and no bucket access: the jobs that touch R2 run in
+# the private ops repo (see ops/private-repo/).
+on:
+  pull_request:
+    paths: ["pipeline/**", "cities/**", ".github/workflows/pipeline.yml"]
+  push:
+    branches: [main]
+    paths: ["pipeline/**", "cities/**", ".github/workflows/pipeline.yml"]
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    defaults: { run: { working-directory: pipeline } }
+    steps:
+      - uses: actions/checkout@v4
+      - run: pipx install uv==0.11.32
+      - run: uv sync --locked
+      - run: uv run pytest -q
