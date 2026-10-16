@@ -2,17 +2,23 @@
 // 10 ms CPU per invocation, so each snapshot is fetched and stored as raw bytes, and all
 // decoding and deduplication happens in the daily pipeline.
 import sofia from "../../cities/sofia.json";
+import { type Outcome, heartbeats } from "./health.ts";
 import { type City, type Job, errorKey, jobsFor, rawKey } from "./schedule.ts";
 
 export interface Env {
   RAW: R2Bucket;
+  // healthchecks.io project ping key (a Worker secret). Without it no heartbeats are sent.
+  HC_PING_KEY?: string;
 }
 
 const CITIES: City[] = [sofia];
 const USER_AGENT = "transit-pulse (+https://github.com/mike2906/transit-pulse)";
 const FETCH_TIMEOUT_MS = 10_000;
+const PING_TIMEOUT_MS = 5_000;
 
-async function record(env: Env, job: Job): Promise<void> {
+// Resolves "saved" once the snapshot is in R2, or "error" once an error record is; rejects only
+// when nothing could be stored at all.
+async function record(env: Env, job: Job): Promise<{ result: "saved" | "error"; detail?: string }> {
   const wait = job.at - Date.now();
   if (wait > 0) await new Promise((resolve) => setTimeout(resolve, wait));
 
@@ -46,7 +52,7 @@ async function record(env: Env, job: Job): Promise<void> {
           last_modified: res.headers.get("last-modified") ?? "",
         },
       });
-      return;
+      return { result: "saved" };
     }
     error = "empty body";
   } catch (e) {
@@ -60,6 +66,7 @@ async function record(env: Env, job: Job): Promise<void> {
     }),
     { httpMetadata: { contentType: "application/json" } },
   );
+  return { result: "error", detail: error };
 }
 
 export default {
@@ -68,8 +75,28 @@ export default {
   async scheduled(controller: ScheduledController, env: Env): Promise<void> {
     const jobs = jobsFor(controller.scheduledTime, Date.now(), CITIES);
     const results = await Promise.allSettled(jobs.map((job) => record(env, job)));
-    // Only reached when even the error record could not be written (e.g. R2 down); log it so
-    // the gap shows in Workers logs.
-    for (const r of results) if (r.status === "rejected") console.error("recording failed", r.reason);
+    const outcomes: Outcome[] = results.map((r, i) => ({
+      city: jobs[i].city,
+      feed: jobs[i].feed.feed,
+      ...(r.status === "fulfilled" ? r.value : { result: "lost" as const, detail: String(r.reason) }),
+    }));
+
+    // Heartbeats come from what was actually stored, so a feed that keeps failing alerts even
+    // though the invocation itself completes.
+    if (env.HC_PING_KEY) {
+      const pings = await Promise.allSettled(
+        heartbeats(env.HC_PING_KEY, outcomes).map((p) =>
+          fetch(p.url, { method: "POST", body: p.body, signal: AbortSignal.timeout(PING_TIMEOUT_MS) }),
+        ),
+      );
+      for (const p of pings) if (p.status === "rejected") console.warn("heartbeat failed", p.reason);
+    }
+
+    // Nothing at all stored for these slots (e.g. R2 down): fail the invocation so it shows as an
+    // error in Workers metrics instead of a normal run.
+    const lost = outcomes.filter((o) => o.result === "lost");
+    if (lost.length) {
+      throw new Error(`${lost.length} of ${jobs.length} fetches left no record: ${lost.map((o) => `${o.feed}: ${o.detail}`).join("; ")}`);
+    }
   },
 } satisfies ExportedHandler<Env>;
