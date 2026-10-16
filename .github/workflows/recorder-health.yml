@@ -1,8 +1,13 @@
 name: recorder-health
 
+# Checks the bucket every 3 hours (per-feed freshness, last-hour coverage, frozen upstream feed)
+# and once a day reports yesterday's coverage. Prints counts only: this repo is public.
+# Needs a read-only R2 token (S3 API) as R2_READ_ACCESS_KEY_ID / R2_READ_SECRET_ACCESS_KEY, and
+# optionally HC_PING_KEY so healthchecks.io notices when this workflow stops running at all.
 on:
   schedule:
     - cron: "17 */3 * * *"
+    - cron: "47 4 * * *" # daily coverage report for yesterday
   workflow_dispatch:
 
 permissions:
@@ -12,32 +17,52 @@ permissions:
 jobs:
   check:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     env:
-      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-      CLOUDFLARE_ACCOUNT_ID: 2ecf50dd0473ff451ea98336863d40fc
+      R2_ACCOUNT_ID: 2ecf50dd0473ff451ea98336863d40fc
+      R2_ACCESS_KEY_ID: ${{ secrets.R2_READ_ACCESS_KEY_ID }}
+      R2_SECRET_ACCESS_KEY: ${{ secrets.R2_READ_SECRET_ACCESS_KEY }}
+      HC_PING_KEY: ${{ secrets.HC_PING_KEY }}
       GH_TOKEN: ${{ github.token }}
       GH_REPO: ${{ github.repository }}
+      DAILY: ${{ github.event.schedule == '47 4 * * *' }}
     steps:
       - uses: actions/checkout@v4
-      - name: Check recent snapshots
+      - run: pipx install uv==0.11.32
+      - name: Check
         id: check
+        working-directory: pipeline
         run: |
+          if [ -z "$R2_ACCESS_KEY_ID" ]; then
+            echo "::error::Repo secrets R2_READ_ACCESS_KEY_ID / R2_READ_SECRET_ACCESS_KEY are not set."
+            exit 1
+          fi
+          uv sync --locked --no-dev -q
           set +e
-          pipeline/check_recorder.sh > summary.md
+          cmd=check; [ "$DAILY" = true ] && cmd=coverage
+          uv run --no-sync transit-pulse --city sofia "$cmd" > ../summary.md
           echo "status=$?" >> "$GITHUB_OUTPUT"
-          tee -a "$GITHUB_STEP_SUMMARY" < summary.md
       # One open "recorder-down" issue while the check fails; closed when it passes again.
+      # The daily report fails only the run (GitHub emails it), it does not touch the issue.
       - name: Open or update the recorder-down issue
-        if: steps.check.outputs.status != '0'
+        if: steps.check.outputs.status == '1' && env.DAILY != 'true'
         run: |
           gh label create recorder-down --color B60205 --force >/dev/null
           n=$(gh issue list --label recorder-down --state open --json number --jq '.[0].number // empty')
           if [ -n "$n" ]; then gh issue comment "$n" --body-file summary.md
           else gh issue create --title "Recorder is down" --label recorder-down --body-file summary.md; fi
-          exit 1
       - name: Close the recorder-down issue
-        if: steps.check.outputs.status == '0'
+        if: steps.check.outputs.status == '0' && env.DAILY != 'true'
         run: |
           for n in $(gh issue list --label recorder-down --state open --json number --jq '.[].number'); do
             gh issue close "$n" --comment "Recovered: $(tail -1 summary.md)"
           done
+      - name: Heartbeat
+        if: always() && env.HC_PING_KEY != ''
+        run: |
+          suffix=""; [ "${{ steps.check.outputs.status }}" = 0 ] || suffix=/fail
+          curl -fsS -m 10 --retry 3 -o /dev/null --data-binary @summary.md \
+            "https://hc-ping.com/${HC_PING_KEY}/sofia-auditor${suffix}?create=1" || true
+      - name: Fail the run if the check failed
+        if: steps.check.outputs.status != '0'
+        run: exit 1
