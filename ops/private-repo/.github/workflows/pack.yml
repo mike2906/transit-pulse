@@ -1,0 +1,84 @@
+# Copy this file unchanged into the PRIVATE ops repo's .github/workflows/. It must not run in
+# the public transit-pulse repo: its logs and any artifact would be public.
+#
+# Preserves each closed UTC day of raw captures as verified tar.zst bundles plus a manifest.
+# Deletes landing objects only when the repo variable PACK_DELETE is "true" (turn it on after
+# `transit-pulse verify --date <day>` passes; see docs/ARCHIVE.md in transit-pulse).
+name: pack
+
+on:
+  # Four chances a day: GitHub delays and drops scheduled runs, and every run catches up on all
+  # outstanding days, oldest first.
+  schedule:
+    - cron: "37 3,9,15,21 * * *"
+  workflow_dispatch:
+    inputs:
+      max_days: { description: "Days to pack in this run", default: "4" }
+      verify_date: { description: "Instead of packing, restore-test this UTC day (YYYY-MM-DD)", default: "" }
+
+permissions: {}
+
+concurrency: { group: pack-sofia, cancel-in-progress: false }
+
+jobs:
+  pack:
+    runs-on: ubuntu-latest
+    timeout-minutes: 150
+    env:
+      R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
+      R2_ACCESS_KEY_ID: ${{ secrets.R2_PACK_ACCESS_KEY_ID }}
+      R2_SECRET_ACCESS_KEY: ${{ secrets.R2_PACK_SECRET_ACCESS_KEY }}
+      HC_PING_KEY: ${{ secrets.HC_PING_KEY }}
+      PACK_DELETE: ${{ vars.PACK_DELETE }}
+      MAX_DAYS: ${{ inputs.max_days || '4' }}
+      VERIFY_DATE: ${{ inputs.verify_date }}
+    steps:
+      # The code is public; only data and credentials live here.
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with: { repository: mike2906/transit-pulse, ref: main, persist-credentials: false }
+      - run: pipx install uv==0.11.32
+      # The timetable in force: archived only when its content changes. Runs before packing so
+      # the day's manifest can name it, but a failure here never stops packing.
+      - name: Static GTFS
+        id: static
+        if: inputs.verify_date == ''
+        continue-on-error: true
+        working-directory: pipeline
+        run: |
+          uv sync --locked --no-dev -q
+          uv run --no-sync transit-pulse --city sofia static
+      - name: Static GTFS heartbeat
+        if: always() && env.HC_PING_KEY != '' && steps.static.outcome != 'skipped'
+        run: |
+          suffix=""; [ "${{ steps.static.outcome }}" = success ] || suffix=/fail
+          curl -fsS -m 10 --retry 3 -o /dev/null "https://hc-ping.com/${HC_PING_KEY}/sofia-static${suffix}?create=1" || true
+      # Route changes and news from the operator's site, new versions only. A failure (most
+      # likely a site redesign) turns the sofia-notices heartbeat red and never stops packing.
+      - name: Notices
+        id: notices
+        if: inputs.verify_date == ''
+        continue-on-error: true
+        working-directory: pipeline
+        run: |
+          uv sync --locked --no-dev -q
+          uv run --no-sync transit-pulse --city sofia notices
+      - name: Notices heartbeat
+        if: always() && env.HC_PING_KEY != '' && steps.notices.outcome != 'skipped'
+        run: |
+          suffix=""; [ "${{ steps.notices.outcome }}" = success ] || suffix=/fail
+          curl -fsS -m 10 --retry 3 -o /dev/null "https://hc-ping.com/${HC_PING_KEY}/sofia-notices${suffix}?create=1" || true
+      - name: Pack
+        working-directory: pipeline
+        run: |
+          uv sync --locked --no-dev -q
+          if [ -n "$VERIFY_DATE" ]; then
+            exec uv run --no-sync transit-pulse --city sofia verify --date "$VERIFY_DATE"
+          fi
+          delete=""; [ "$PACK_DELETE" = true ] && delete=--delete
+          uv run --no-sync transit-pulse --city sofia pack $delete --max-days "$MAX_DAYS"
+      # Never upload artifacts or caches from this job: they would hold archive data.
+      - name: Heartbeat
+        if: always() && env.HC_PING_KEY != ''
+        run: |
+          suffix=""; [ "${{ job.status }}" = success ] || suffix=/fail
+          curl -fsS -m 10 --retry 3 -o /dev/null "https://hc-ping.com/${HC_PING_KEY}/sofia-pack${suffix}?create=1" || true

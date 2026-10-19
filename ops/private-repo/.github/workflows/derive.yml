@@ -1,0 +1,41 @@
+# Copy this file unchanged into the PRIVATE ops repo's .github/workflows/ (see pack.yml).
+#
+# Decodes packed days into Parquet under derived/. Separate from packing on purpose: a decoding
+# bug fails this workflow and nothing else.
+name: derive
+
+on:
+  workflow_run:
+    workflows: [pack]
+    types: [completed]
+  schedule:
+    - cron: "7 6 * * *" # fallback if workflow_run is missed
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency: { group: derive-sofia, cancel-in-progress: false }
+
+jobs:
+  derive:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    env:
+      R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
+      R2_ACCESS_KEY_ID: ${{ secrets.R2_PACK_ACCESS_KEY_ID }}
+      R2_SECRET_ACCESS_KEY: ${{ secrets.R2_PACK_SECRET_ACCESS_KEY }}
+      HC_PING_KEY: ${{ secrets.HC_PING_KEY }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with: { repository: mike2906/transit-pulse, ref: main, persist-credentials: false }
+      - run: pipx install uv==0.11.32
+      - name: Derive
+        working-directory: pipeline
+        run: |
+          uv sync --locked --no-dev -q
+          uv run --no-sync transit-pulse --city sofia derive --max-days 4
+      - name: Heartbeat
+        if: always() && env.HC_PING_KEY != ''
+        run: |
+          suffix=""; [ "${{ job.status }}" = success ] || suffix=/fail
+          curl -fsS -m 10 --retry 3 -o /dev/null "https://hc-ping.com/${HC_PING_KEY}/sofia-derive${suffix}?create=1" || true
