@@ -21,6 +21,7 @@ class Feed:
 class City:
     id: str
     feeds: tuple[Feed, ...]
+    static_url: str = ""
 
     @property
     def feed_ids(self) -> list[str]:
@@ -30,4 +31,4 @@ class City:
 def load_city(city_id: str, cities_dir: Path = CITIES_DIR) -> City:
     raw = json.loads((cities_dir / f"{city_id}.json").read_text())
     feeds = tuple(Feed(f["feed"], f["every_minutes"], tuple(f["offsets_s"])) for f in raw["realtime"])
-    return City(raw["id"], feeds)
+    return City(raw["id"], feeds, raw.get("static_url", ""))

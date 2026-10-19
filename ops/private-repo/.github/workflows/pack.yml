@@ -37,6 +37,21 @@ jobs:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with: { repository: mike2906/transit-pulse, ref: main, persist-credentials: false }
       - run: pipx install uv==0.11.32
+      # The timetable in force: archived only when its content changes. Runs before packing so
+      # the day's manifest can name it, but a failure here never stops packing.
+      - name: Static GTFS
+        id: static
+        if: inputs.verify_date == ''
+        continue-on-error: true
+        working-directory: pipeline
+        run: |
+          uv sync --locked --no-dev -q
+          uv run --no-sync transit-pulse --city sofia static
+      - name: Static GTFS heartbeat
+        if: always() && env.HC_PING_KEY != '' && steps.static.outcome != 'skipped'
+        run: |
+          suffix=""; [ "${{ steps.static.outcome }}" = success ] || suffix=/fail
+          curl -fsS -m 10 --retry 3 -o /dev/null "https://hc-ping.com/${HC_PING_KEY}/sofia-static${suffix}?create=1" || true
       - name: Pack
         working-directory: pipeline
         run: |

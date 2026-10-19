@@ -10,6 +10,7 @@ heartbeats). Code: `pipeline/` (Python, uv) and `recorder/` (Worker).
 | --- | --- | --- |
 | Recorder | Cloudflare Worker, every minute | Stores snapshots under `raw/`, failures under `errors/`; pings healthchecks.io per feed |
 | `pack` | private ops repo, 03:37/09:37/15:37/21:37 UTC | Bundles each closed UTC day, verifies it, writes a manifest, then (if enabled) deletes landing objects |
+| `static` | private ops repo, before each `pack` run | Downloads the static GTFS timetable; archives it when its content changed |
 | `derive` | private ops repo, after `pack` | Decodes bundles into Parquet under `derived/` |
 | `check` | this repo, every 3 h | Per-feed freshness, last-hour coverage, frozen upstream feed |
 | `coverage` | this repo, 04:47 UTC | Yesterday's coverage per feed and hour; fails under 90% |
@@ -24,6 +25,9 @@ raw/<city>/<feed>/<UTC-date>/<hour>/<fetch-ms>.pb           recorder, deleted af
 errors/<city>/<UTC-date>/<slot-ms>-<feed>.json              recorder, deleted after packing
 archive/<city>/raw/<UTC-date>/<feed|errors>/<sha256>.tar.zst  kept forever
 archive/<city>/manifests/<UTC-date>/raw-v1-<created-ms>.json  kept forever
+archive/<city>/static/versions/<canonical-sha256>/original.zip  kept forever, one per timetable version
+archive/<city>/static/versions/<canonical-sha256>/meta.json     validity dates, per-file hashes, HTTP headers
+archive/<city>/static/seen/<UTC-date>/<retrieved-ms>.json       every download: which version was published
 derived/<city>/v1/<table>/<UTC-date>/part-0.parquet         rebuildable
 derived/<city>/v1/manifests/<UTC-date>.json
 ```
@@ -37,6 +41,23 @@ A raw manifest lists every object it covers (key, size, SHA-256, bundle), the bu
 day's coverage per feed and hour. **Preserved is not the same as complete**: a day with gaps is
 still preserved, and its manifest says how much is missing. A day can have several manifests
 if objects arrived after the first was written; each covers only what the earlier ones did not.
+
+## Timetable versions
+
+Delays and ghost trips need the timetable that was in force at the time, and the city replaces
+it without notice, so each `pack` run first downloads the static GTFS (four times a day). The
+**canonical hash** covers file names and contents only, so a re-zipped copy of the same data is
+not a new version. It leaves out `feed_info.txt`, which Sofia regenerates daily with a rolling
+one-year validity; that file's dates and every file's hash go in each `seen` record instead.
+A new version is stored once, original zip first and `meta.json` last, with
+`feed_info.txt` start/end dates and version, and the first and last service dates from the
+calendars. Every download also leaves a `seen` record, and each day's raw manifest lists
+`static_versions_seen` that day. A day with none uses the latest version first seen before it.
+
+Matching a realtime trip to a version is left to analysis: during a changeover both versions
+can apply on the same day, so it should check the trip's own service date and trip id, not
+pick one version per day. A download that is not a valid zip (for example a bot-check page)
+stores nothing and turns the `sofia-static` heartbeat red; packing still runs.
 
 ## Safety rules in the code
 
@@ -76,7 +97,7 @@ bindings also come out null (they survive in the raw bundles).
   published order); `entity_membership` says which versions each snapshot held.
 - `alerts`: each distinct alert version as complete JSON; membership as above.
 
-Not yet: static GTFS matching, service dates, per-entity quality events, and the 30-day
+Not yet: matching trips to timetable versions, service dates, per-entity quality events, and the 30-day
 retention for detailed Parquet. Sizes are unmeasured until the first real day is derived.
 
 ## Monitoring
@@ -91,6 +112,7 @@ healthchecks.io checks (free plan: 20 checks), slugs created automatically on fi
 | `sofia-auditor` | `recorder-health` workflow, 3-hourly check | 3 h | 3 h |
 | `sofia-coverage` | `recorder-health` workflow, daily report | 1 day | 6 h |
 | `sofia-pack` | `pack` workflow | 6 h | 6 h |
+| `sofia-static` | `pack` workflow, timetable download | 6 h | 18 h |
 | `sofia-derive` | `derive` workflow | 1 day | 6 h |
 
 A minute where a feed stored nothing sends a `/log` ping with the errors: it shows in the

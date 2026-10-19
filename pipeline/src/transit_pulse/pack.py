@@ -35,6 +35,7 @@ import zstandard as zstd
 from . import keys as K
 from .cities import City
 from .coverage import coverage, markdown_table
+from .static import versions_seen
 from .store import ObjectInfo, Store, sha256_file
 
 DAY_MS = 86_400_000
@@ -277,6 +278,9 @@ def pack_day(
             "objects": entries,
             # Coverage of the whole day so far: preserved is not the same as complete.
             "coverage": {f: c.to_json() for f, c in cov.items()},
+            # Static GTFS versions downloaded that day (canonical hashes, first seen first). Empty
+            # means no download that day: use the latest version first seen before it.
+            "static_versions_seen": versions_seen(store, city, date),
             "verification": "every bundle re-downloaded, decompressed and matched member by member",
         }
         mkey = K.raw_manifest_key(city.id, date, now_ms)

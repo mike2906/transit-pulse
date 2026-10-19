@@ -30,6 +30,22 @@ def raw_manifest_key(city: str, date: str, created_ms: int) -> str:
     return f"{raw_manifests_prefix(city, date)}raw-v1-{created_ms}.json"
 
 
+def static_version_prefix(city: str, canonical_sha: str) -> str:
+    return f"archive/{city}/static/versions/{canonical_sha}/"
+
+
+def static_seen_key(city: str, retrieved_ms: int) -> str:
+    # One small record per download, so "which timetable was published on day D" is a listing.
+    from datetime import UTC, datetime
+
+    date = datetime.fromtimestamp(retrieved_ms / 1000, UTC).strftime("%Y-%m-%d")
+    return f"{static_seen_prefix(city, date)}{retrieved_ms}.json"
+
+
+def static_seen_prefix(city: str, date: str = "") -> str:
+    return f"archive/{city}/static/seen/{date + '/' if date else ''}"
+
+
 def derived_key(city: str, schema: str, table: str, date: str) -> str:
     return f"derived/{city}/{schema}/{table}/{date}/part-0.parquet"
 
