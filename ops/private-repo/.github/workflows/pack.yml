@@ -52,6 +52,21 @@ jobs:
         run: |
           suffix=""; [ "${{ steps.static.outcome }}" = success ] || suffix=/fail
           curl -fsS -m 10 --retry 3 -o /dev/null "https://hc-ping.com/${HC_PING_KEY}/sofia-static${suffix}?create=1" || true
+      # Route changes and news from the operator's site, new versions only. A failure (most
+      # likely a site redesign) turns the sofia-notices heartbeat red and never stops packing.
+      - name: Notices
+        id: notices
+        if: inputs.verify_date == ''
+        continue-on-error: true
+        working-directory: pipeline
+        run: |
+          uv sync --locked --no-dev -q
+          uv run --no-sync transit-pulse --city sofia notices
+      - name: Notices heartbeat
+        if: always() && env.HC_PING_KEY != '' && steps.notices.outcome != 'skipped'
+        run: |
+          suffix=""; [ "${{ steps.notices.outcome }}" = success ] || suffix=/fail
+          curl -fsS -m 10 --retry 3 -o /dev/null "https://hc-ping.com/${HC_PING_KEY}/sofia-notices${suffix}?create=1" || true
       - name: Pack
         working-directory: pipeline
         run: |

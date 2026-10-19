@@ -13,7 +13,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from tempfile import mkdtemp
 
-from . import check, derive, pack, static
+from . import check, derive, notices, pack, static
 from .cities import load_city
 from .store import open_store
 
@@ -45,6 +45,8 @@ def main(argv: list[str] | None = None) -> int:
 
     sub.add_parser("static", help="download the static GTFS; archive it if it is a new version")
 
+    sub.add_parser("notices", help="archive the operator's route-change and news notices, new versions only")
+
     v = sub.add_parser("verify", help="restore test: re-check a packed day against manifests and landing")
     v.add_argument("--date", required=True)
 
@@ -71,6 +73,9 @@ def main(argv: list[str] | None = None) -> int:
         return 1 if failed else 0
     if args.cmd == "static":
         static.capture(store, city, code_version=version, log=_out)
+        return 0
+    if args.cmd == "notices":
+        notices.capture(store, city, log=_out)
         return 0
     if args.cmd == "verify":
         report, ok = pack.verify_day(store, city, args.date, Path(mkdtemp(prefix="verify-")))

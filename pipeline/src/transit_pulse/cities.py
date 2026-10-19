@@ -22,6 +22,7 @@ class City:
     id: str
     feeds: tuple[Feed, ...]
     static_url: str = ""
+    notices: str = ""  # which operator-notices reader applies (pipeline/notices.py), if any
 
     @property
     def feed_ids(self) -> list[str]:
@@ -31,4 +32,4 @@ class City:
 def load_city(city_id: str, cities_dir: Path = CITIES_DIR) -> City:
     raw = json.loads((cities_dir / f"{city_id}.json").read_text())
     feeds = tuple(Feed(f["feed"], f["every_minutes"], tuple(f["offsets_s"])) for f in raw["realtime"])
-    return City(raw["id"], feeds, raw.get("static_url", ""))
+    return City(raw["id"], feeds, raw.get("static_url", ""), raw.get("notices", ""))

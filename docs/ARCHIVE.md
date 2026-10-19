@@ -11,6 +11,7 @@ heartbeats). Code: `pipeline/` (Python, uv) and `recorder/` (Worker).
 | Recorder | Cloudflare Worker, every minute | Stores snapshots under `raw/`, failures under `errors/`; pings healthchecks.io per feed |
 | `pack` | private ops repo, 03:37/09:37/15:37/21:37 UTC | Bundles each closed UTC day, verifies it, writes a manifest, then (if enabled) deletes landing objects |
 | `static` | private ops repo, before each `pack` run | Downloads the static GTFS timetable; archives it when its content changed |
+| `notices` | private ops repo, before each `pack` run | Saves sofiatraffic.bg route changes and news; a new version only when an item changed |
 | `derive` | private ops repo, after `pack` | Decodes bundles into Parquet under `derived/` |
 | `check` | this repo, every 3 h | Per-feed freshness, last-hour coverage, frozen upstream feed |
 | `coverage` | this repo, 04:47 UTC | Yesterday's coverage per feed and hour; fails under 90% |
@@ -28,6 +29,8 @@ archive/<city>/manifests/<UTC-date>/raw-v1-<created-ms>.json  kept forever
 archive/<city>/static/versions/<canonical-sha256>/original.zip  kept forever, one per timetable version
 archive/<city>/static/versions/<canonical-sha256>/meta.json     validity dates, per-file hashes, HTTP headers
 archive/<city>/static/seen/<UTC-date>/<retrieved-ms>.json       every download: which version was published
+archive/<city>/notices/sofiatraffic/<kind>/<id>/<sha>.json      every version of each notice, kept forever
+archive/<city>/notices/sofiatraffic/runs/<UTC-date>/<ms>.json  per run: which notices were live, at which version
 derived/<city>/v1/<table>/<UTC-date>/part-0.parquet         rebuildable
 derived/<city>/v1/manifests/<UTC-date>.json
 ```
@@ -58,6 +61,26 @@ Matching a realtime trip to a version is left to analysis: during a changeover b
 can apply on the same day, so it should check the trip's own service date and trip id, not
 pick one version per day. A download that is not a valid zip (for example a bot-check page)
 stores nothing and turns the `sofia-static` heartbeat red; packing still runs.
+
+## Operator notices
+
+Closures, detours, roadworks and bus-lane news date the before/after stories, and the operator
+edits and removes them, so each `pack` run saves them from sofiatraffic.bg:
+
+- `route-changes`: the active route changes (dates, cause, effect, affected lines, full text),
+  from the JSON the site's own pop-up loads.
+- `info-center`: every info-centre article's title, date and main text, from the list the
+  news page embeds; `info-center-pages`: the full page (attachments too) for articles new or
+  edited in the last 30 days.
+
+Nothing is parsed out of HTML layout: the site is an Inertia.js app, so the data is the JSON it
+embeds. An item is stored again only when its content changes, and each run record lists which
+items were live at which version, so edits and removals are both dated. If the JSON stops
+having the expected shape, the step fails and `sofia-notices` turns red; packing still runs.
+First run stores about 320 small files (about 3 MB); later runs store only changes.
+
+sofia.bg (the municipality) is not included: it answers "403 Unsupported Browser" to honestly
+named bots, even on its RSS feed.
 
 ## Safety rules in the code
 
@@ -113,6 +136,7 @@ healthchecks.io checks (free plan: 20 checks), slugs created automatically on fi
 | `sofia-coverage` | `recorder-health` workflow, daily report | 1 day | 6 h |
 | `sofia-pack` | `pack` workflow | 6 h | 6 h |
 | `sofia-static` | `pack` workflow, timetable download | 6 h | 18 h |
+| `sofia-notices` | `pack` workflow, operator notices | 6 h | 18 h |
 | `sofia-derive` | `derive` workflow | 1 day | 6 h |
 
 A minute where a feed stored nothing sends a `/log` ping with the errors: it shows in the
